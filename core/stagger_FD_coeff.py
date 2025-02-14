@@ -7,9 +7,10 @@ import warnings
 import scipy as sp
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 pi = np.pi
-fact = np.math.factorial  # 计算阶乘
+fact = np.math.factorial
 
 
 class Stagger_FD_coeff_1D:
@@ -158,8 +159,8 @@ class Stagger_FD_coeff_1D:
             coeff_vec = np.ones(M).reshape(-1, 1) / 100
         C, c = self.construct_lstsq(M, coeff_vec)
         D = np.identity(M)
-        C_alpha = C + alpha * D.T @ D
-        c_alpha = c - alpha * D.T @ D @ coeff_vec
+        C_alpha = C + alpha * D
+        c_alpha = c - alpha * D @ coeff_vec
         return C_alpha, c_alpha
 
     def von_Neumann_stab_cond(self, coeff_vec, Dim=1):
@@ -198,7 +199,11 @@ class Stagger_FD_coeff_1D:
         """
         if alpha == 0:
             C, c = self.construct_lstsq(M, coeff_vec)
-            coeff_delta = solver(C, c)
+            try:
+                coeff_delta = solver(C, c)
+            except:
+                coeff_delta = solver(C + 1.0e-10 * np.eye(M), c)
+
         elif alpha > 0:
             A_alpha, b = self.construct_lstsq_reg(M, alpha, coeff_vec)
             coeff_delta = solver(A_alpha, b)
@@ -211,14 +216,8 @@ class Stagger_FD_coeff_1D:
         self, M, coeff_vec, alpha, solver, solver_param_dict
     ):
         """Solving the linear system of equation."""
-        if alpha == 0:
-            A, b = self.construct(M, coeff_vec)
-            coeff_delta = solver(A, b, **solver_param_dict)
-        elif alpha > 0:
-            A, b = self.construct(M, coeff_vec)
-            coeff_delta = solver(A, b, alpha=alpha, **solver_param_dict)
-        else:
-            raise ValueError("Regularization factor alpha should > 0.")
+        A, b = self.construct(M, coeff_vec)
+        coeff_delta = solver(A, b, alpha=alpha, **solver_param_dict)
 
         return coeff_delta
 
@@ -227,14 +226,18 @@ class Stagger_FD_coeff_1D:
         M,
         coeff_vec=None,
         alpha=None,
-        beta=1,
+        beta=1.0,
+        beta_decay=1.0,
         max_iter_num=100,
         solver=np.linalg.solve,
         mode_of_construct="lstsq",  # 'normal'
         epsilon=1e-6,
+        alpha_decay=1e-1,
         show_process=False,
         add_non_linear_obj=False,
         SampleSolver_param_dict={},
+        return_iter_num=False,
+        call_back=None,
     ):
         """Solve the system of linear equations constructed based on the
         time-space domain frequency preservation method, yielding the
@@ -287,7 +290,7 @@ class Stagger_FD_coeff_1D:
         if alpha is None:
             alpha = 0
 
-        for iter_num in range(1, max_iter_num + 1):
+        for iter_num in tqdm(range(1, max_iter_num + 1)):
 
             # von Neumann stability condition 1D
             # self.von_Neumann_stab_cond(coeff_vec)
@@ -300,6 +303,8 @@ class Stagger_FD_coeff_1D:
 
             # calculate the object function (eq 10)
             obj = self.cal_Phi(coeff_vec)
+            print(f"Current object function value is {obj}")
+            print("\n")
 
             # Optimal sampling result
             if add_non_linear_obj:
@@ -309,10 +314,12 @@ class Stagger_FD_coeff_1D:
 
                 SampleSolver_param_dict["non_linear_obj"] = non_lin_obj
 
-            print(f"Current object function value is {obj}")
             if obj < epsilon:
                 print(f"The target accuracy is satisfied and the iteration is ended!")
                 break
+
+            if call_back is not None:
+                call_back(coeff_vec, obj)
 
             print(f"~~~~~~~~ Start {iter_num} iteration ~~~~~~~~")
 
@@ -327,26 +334,27 @@ class Stagger_FD_coeff_1D:
             else:
                 raise NotImplementedError
 
-            alpha = ini_alpha * 0.1**iter_num if alpha > 0 else 0
+            alpha = ini_alpha * alpha_decay**iter_num if alpha > 0 else 0
 
             coeff_vector_new = coeff_vec + beta * coeff_delta
+            beta *= beta_decay
 
             print("Current coeff_vec is:")
             print(f"{coeff_vector_new.reshape(1,-1)}")
 
-            if (
-                np.linalg.norm((coeff_vec - coeff_vector_new) / coeff_vec) ** 2
-                < epsilon
-            ):
+            if np.linalg.norm((coeff_vec - coeff_vector_new) / coeff_vec) < epsilon:
                 print("Iteration stalled! Stop it.")
                 break
             else:
                 coeff_vec = coeff_vector_new
 
         # Don't forget calculating the last objection
-        obj = self.cal_Phi(coeff_vec)
+        # obj = self.cal_Phi(coeff_vec)
         print(f"Current object function value is {obj}")
-        return coeff_vec
+        if return_iter_num:
+            return coeff_vec, iter_num
+        else:
+            return coeff_vec
 
     def _calCond(self, M, coeff_vec):
         """Calculating the condition number of linear system of equations."""

@@ -20,7 +20,7 @@ from dimod.binary import BinaryQuadraticModel as BQM
 from collections import ChainMap
 import networkx as nx
 from functools import reduce
-from .utils import to_fixed_point, find_long_simple_path, b2f, show_obj_curve
+from .utils import to_fixed_point, b2f, show_obj_curve
 from dwave.system import DWaveSampler, FixedEmbeddingComposite
 import dwave_networkx as dnx
 import dimod
@@ -1334,7 +1334,7 @@ class IterSampleSolver(DirectSampleSolver):
         drate=1.0,
         D=None,
         non_linear_obj=None,
-        sp=True,
+        sp=False,
         save_results=False,
     ):
         """
@@ -1534,7 +1534,7 @@ class IterSampleSolver(DirectSampleSolver):
                 if sp:
                     print(f"* The step size of current iteration:{self._L}")
 
-        return self._best_x
+        return self._x0
 
     @check_dimension
     def original_QUBO_solve(self, A, b, steplen=0.75, non_linear_obj=None):
